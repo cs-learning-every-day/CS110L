@@ -17,6 +17,7 @@ use rand::Rng;
 use std::fs;
 use std::io;
 use std::io::Write;
+use std::iter::FromIterator;
 
 const NUM_INCORRECT_GUESSES: u32 = 5;
 const WORDS_PATH: &str = "words.txt";
@@ -34,7 +35,54 @@ fn main() {
     // secret_word by doing secret_word_chars[i].
     let secret_word_chars: Vec<char> = secret_word.chars().collect();
     // Uncomment for debugging:
-    // println!("random word: {}", secret_word);
+    println!("random word: {}", secret_word);
 
     // Your code here! :)
+    println!("Welcome to CS110L Hangman!");
+
+    let word_len = secret_word.len();
+    let mut counter: u32 = NUM_INCORRECT_GUESSES;
+    let mut word_vec = vec!['-'; word_len];
+    let mut flag_vec = vec![false; word_len];
+    let mut guess_letter = String::new();
+
+    while counter > 0 {
+        let word = String::from_iter(word_vec.iter());
+        if word == secret_word {
+            println!("Congratulations you guessed the secret word: {}!", word);
+            break;
+        }
+        println!("The word so far is {}", word);
+        println!("You have guessed the following letters: {}", guess_letter);
+        println!("You have {} guesses left", counter);
+        print!("Please guess a letter: ");
+
+        io::stdout().flush().expect("Error flushing stdout.");
+        let mut guess = String::new();
+        io::stdin()
+            .read_line(&mut guess)
+            .expect("Error reading line.");
+
+        let ch = guess.chars().nth(0).unwrap();
+        guess_letter.push(ch);
+
+        let mut idx = word_len;
+        for i in 0..word_len {
+            if secret_word_chars[i] == ch && !flag_vec[i] {
+                idx = i;
+                break;
+            }
+        }
+        if word_len != idx {
+            word_vec[idx] = secret_word_chars[idx];
+            flag_vec[idx] = true;
+        } else {
+            counter -= 1;
+            println!("Sorry, that letter is not in the word");
+        }
+        println!();
+    }
+    if counter == 0 {
+        println!("Sorry, you ran out of guesses!");
+    }
 }
