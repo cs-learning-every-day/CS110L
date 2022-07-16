@@ -9,7 +9,8 @@ fn main() {
     println!("{}", ref3.to_uppercase());
 }
 ```
-
+s被借走了，在借走的生命周期中不允许修改。
+SOL: 将修改移到后面
 
 
 Example 2:
@@ -19,8 +20,8 @@ fn drip_drop() -> &String {
     return &s;
 }
 ```
-
-
+s的生命周期在函数内，返回的只是一个引用，并不能移走owner，所以在函数结束后会被释放掉。
+SOL：返回s（将owner一并移走）
 
 Example 3:
 ```
@@ -32,3 +33,5 @@ fn main() {
     println!("{}", s2);
 }
 ```
+一个变量同时只能被一个owner
+SOL: s2可以借用s1的owner
