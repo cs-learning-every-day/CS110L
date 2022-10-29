@@ -36,7 +36,6 @@ impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
     pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
-        // TODO: implement me!
         let mut cmd = Command::new(target);
         unsafe {
             cmd.pre_exec(child_traceme);
@@ -46,10 +45,15 @@ impl Inferior {
     }
 
     pub fn continue_run(&self) -> Result<Status, nix::Error> {
-        
         // 恢复执行inferior
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
+    }
+
+    pub fn kill(&mut self) {
+        self.child.kill().unwrap();
+        self.wait(None).unwrap();
+        println!("Killing running inferior (pid {})", self.pid());
     }
 
     /// Returns the pid of this inferior.

@@ -34,22 +34,50 @@ impl Debugger {
         loop {
             match self.get_next_command() {
                 DebuggerCommand::Run(args) => {
+                    if self.inferior.is_some() {
+                        self.inferior.as_mut().unwrap().kill();
+                        self.inferior = None;
+                    }
                     if let Some(inferior) = Inferior::new(&self.target, &args) {
                         // Create the inferior
                         self.inferior = Some(inferior);
-                        // TODO (milestone 1): make the inferior run
                         // You may use self.inferior.as_mut().unwrap() to get a mutable reference
                         // to the Inferior object
                         match self.inferior.as_mut().unwrap().continue_run().unwrap() {
-                            Status::Exited(exit_code) => println!("Child exited (status {})", exit_code),
+                            Status::Exited(exit_code) => {
+                                println!("Child exited (status {})", exit_code);
+                                self.inferior = None;
+                            }
                             Status::Signaled(_sig) => println!("signal"),
-                            Status::Stopped(_sig, _rip) => println!("stoped"),
+                            Status::Stopped(sig, _rip) => {
+                                println!("Child stopped (signal {})", sig);
+                            }
                         }
                     } else {
                         println!("Error starting subprocess");
                     }
                 }
+                DebuggerCommand::Continue => {
+                    if self.inferior.is_none() {
+                        println!("Child not running");
+                    } else {
+                        match self.inferior.as_mut().unwrap().continue_run().unwrap() {
+                            Status::Exited(exit_code) => {
+                                println!("Child exited (status {})", exit_code);
+                                self.inferior = None;
+                            }
+                            Status::Signaled(_sig) => println!("signal"),
+                            Status::Stopped(sig, _rip) => {
+                                println!("Child stopped (signal {})", sig);
+                            }
+                        }
+                    }
+                }
                 DebuggerCommand::Quit => {
+                    if self.inferior.is_some() {
+                        self.inferior.as_mut().unwrap().kill();
+                        self.inferior = None;
+                    }
                     return;
                 }
             }
