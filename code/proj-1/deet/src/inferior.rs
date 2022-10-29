@@ -2,9 +2,11 @@ use nix::sys::ptrace;
 use nix::sys::signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::mem::size_of;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
+use std::ptr::write_bytes;
 
 use crate::dwarf_data::DwarfData;
 
@@ -30,6 +32,11 @@ fn child_traceme() -> Result<(), std::io::Error> {
     )))
 }
 
+fn align_addr_to_word(addr: usize) -> usize {
+    addr & (-(size_of::<usize>() as isize) as usize)
+}
+
+const HALT_VAL: u8 = 0xcc;
 pub struct Inferior {
     child: Child,
 }
@@ -46,8 +53,11 @@ impl Inferior {
         Some(Inferior { child })
     }
 
-    pub fn continue_run(&self) -> Result<Status, nix::Error> {
-        // 恢复执行inferior
+    pub fn continue_run(&mut self, breakpoints: &Vec<usize>) -> Result<Status, nix::Error> {
+        for addr in breakpoints.iter() {
+            self.write_byte(addr.clone(), HALT_VAL).unwrap();
+        }
+        // resume execute 
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
@@ -81,6 +91,21 @@ impl Inferior {
     /// Returns the pid of this inferior.
     pub fn pid(&self) -> Pid {
         nix::unistd::Pid::from_raw(self.child.id() as i32)
+    }
+
+    fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+        let aligned_addr = align_addr_to_word(addr);
+        let byte_offset = addr - aligned_addr;
+        let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
+        let orig_byte = (word >> 8 * byte_offset) & 0xff;
+        let masked_word = word & !(0xff << 8 * byte_offset);
+        let updated_word = masked_word | ((val as u64) << 8 * byte_offset);
+        ptrace::write(
+            self.pid(),
+            aligned_addr as ptrace::AddressType,
+            updated_word as *mut std::ffi::c_void,
+        )?;
+        Ok(orig_byte as u8)
     }
 
     /// Calls waitpid on this inferior and returns a Status to indicate the state of the process

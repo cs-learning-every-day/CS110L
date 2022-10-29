@@ -12,12 +12,19 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     debug_data: DwarfData,
+    breakpoints: Vec<usize>,
 }
-
+fn parse_address(addr: &str) -> Option<usize> {
+    let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
+        &addr[2..]
+    } else {
+        &addr
+    };
+    usize::from_str_radix(addr_without_0x, 16).ok()
+}
 impl Debugger {
     /// Initializes the debugger.
     pub fn new(target: &str) -> Debugger {
-        // TODO (milestone 3): initialize the DwarfData
         let debug_data = match DwarfData::from_file(target) {
             Ok(val) => val,
             Err(DwarfError::ErrorOpeningFile) => {
@@ -34,12 +41,14 @@ impl Debugger {
         // Attempt to load history from ~/.deet_history if it exists
         let _ = readline.load_history(&history_path);
 
+        debug_data.print();
         Debugger {
             target: target.to_string(),
             history_path,
             readline,
             inferior: None,
             debug_data,
+            breakpoints: vec![],
         }
     }
 
@@ -56,7 +65,13 @@ impl Debugger {
                         self.inferior = Some(inferior);
                         // You may use self.inferior.as_mut().unwrap() to get a mutable reference
                         // to the Inferior object
-                        match self.inferior.as_mut().unwrap().continue_run().unwrap() {
+                        match self
+                            .inferior
+                            .as_mut()
+                            .unwrap()
+                            .continue_run(&self.breakpoints)
+                            .unwrap()
+                        {
                             Status::Exited(exit_code) => {
                                 println!("Child exited (status {})", exit_code);
                                 self.inferior = None;
@@ -74,6 +89,10 @@ impl Debugger {
                         println!("Error starting subprocess");
                     }
                 }
+                DebuggerCommand::Breakpoint(addr) => {
+                    println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
+                    self.breakpoints.push(parse_address(addr.as_str()).unwrap());
+                }
                 DebuggerCommand::Backtrace => {
                     if self.inferior.is_none() {
                         println!("Child not running");
@@ -89,7 +108,13 @@ impl Debugger {
                     if self.inferior.is_none() {
                         println!("Child not running");
                     } else {
-                        match self.inferior.as_mut().unwrap().continue_run().unwrap() {
+                        match self
+                            .inferior
+                            .as_mut()
+                            .unwrap()
+                            .continue_run(&self.breakpoints)
+                            .unwrap()
+                        {
                             Status::Exited(exit_code) => {
                                 println!("Child exited (status {})", exit_code);
                                 self.inferior = None;
