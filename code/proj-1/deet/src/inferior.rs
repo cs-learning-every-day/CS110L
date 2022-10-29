@@ -6,6 +6,8 @@ use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
 
+use crate::dwarf_data::DwarfData;
+
 pub enum Status {
     /// Indicates inferior stopped. Contains the signal that stopped the process, as well as the
     /// current instruction pointer that it is stopped at.
@@ -41,13 +43,33 @@ impl Inferior {
             cmd.pre_exec(child_traceme);
         }
         let child = cmd.args(args).spawn().ok()?;
-        Some(Inferior { child: child })
+        Some(Inferior { child })
     }
 
     pub fn continue_run(&self) -> Result<Status, nix::Error> {
         // 恢复执行inferior
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
+    }
+
+    pub fn print_backtrace(&self, debug_data: &DwarfData) -> Result<(), nix::Error> {
+        let regs = ptrace::getregs(self.pid())?;
+        let rip_addr = regs.rip as usize;
+        // println!("%rip register: {:#x}", regs.rip);
+        let mut instruction_ptr = rip_addr;
+        let mut base_ptr = regs.rbp as usize;
+        while true {
+            let line = DwarfData::get_line_from_addr(&debug_data, instruction_ptr).unwrap();
+            let fname = DwarfData::get_function_from_addr(&debug_data, instruction_ptr).unwrap();
+            println!("{} ({})", fname, line);
+            if fname == "main" {
+                break;
+            }
+            instruction_ptr =
+                ptrace::read(self.pid(), (base_ptr + 8) as ptrace::AddressType)? as usize;
+            base_ptr = ptrace::read(self.pid(), base_ptr as ptrace::AddressType)? as usize;
+        }
+        Ok(())
     }
 
     pub fn kill(&mut self) {
