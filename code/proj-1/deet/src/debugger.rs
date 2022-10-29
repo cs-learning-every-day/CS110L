@@ -62,8 +62,12 @@ impl Debugger {
                                 self.inferior = None;
                             }
                             Status::Signaled(_sig) => println!("signal"),
-                            Status::Stopped(sig, _rip) => {
+                            Status::Stopped(sig, rip) => {
                                 println!("Child stopped (signal {})", sig);
+                                let line = DwarfData::get_line_from_addr(&self.debug_data, rip);
+                                if line.is_some() {
+                                    println!("Stopped at {}", line.unwrap());
+                                }
                             }
                         }
                     } else {
@@ -91,8 +95,12 @@ impl Debugger {
                                 self.inferior = None;
                             }
                             Status::Signaled(_sig) => println!("signal"),
-                            Status::Stopped(sig, _rip) => {
+                            Status::Stopped(sig, rip) => {
                                 println!("Child stopped (signal {})", sig);
+                                let line = DwarfData::get_line_from_addr(&self.debug_data, rip);
+                                if line.is_some() {
+                                    println!("Stopped at {}", line.unwrap());
+                                }
                             }
                         }
                     }
