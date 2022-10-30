@@ -4,7 +4,7 @@
 - [X] Week 1 Exercises: Hello world
 - [X] Week 2 Exercises: Ownership and structs
 - [X] Week 3 Exercises: Error handling, I/O, and traits
-- [ ] Project 1: The DEET Debugger
+- [X] Project 1: The DEET Debugger
 - [ ] Week 4 Exercises: Checking in
 - [ ] Week 5 Exercises: Farm meets multithreading
 - [ ] Week 6 Exercises: Sharing Data by Communicating
