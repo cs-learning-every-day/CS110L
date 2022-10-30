@@ -93,19 +93,54 @@ impl Debugger {
                         println!("Error starting subprocess");
                     }
                 }
-                DebuggerCommand::Breakpoint(addr) => {
-                    println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
-                    let addr = parse_address(addr.as_str()).unwrap();
-                    if self.inferior.is_none() {
-                        self.breakpoints.insert(addr, 0);
-                    } else {
-                        let orig_byte = self
-                            .inferior
-                            .as_mut()
-                            .unwrap()
-                            .write_byte(addr, 0xcc)
-                            .unwrap();
-                        self.breakpoints.insert(addr, orig_byte);
+                DebuggerCommand::Breakpoint(addrs) => {
+                    for addr in addrs {
+                        let mut target_addr: usize = 0;
+                        if addr.starts_with("*") {
+                            if let Some(taddr) = parse_address(addr[1..].to_string().as_str()) {
+                                target_addr = taddr;
+                            } else {
+                                println!("Invalid address {}", addr);
+                            }
+                        } else if let Some(line) = usize::from_str_radix(addr.as_str(), 10).ok() {
+                            if let Some(laddr) = self.debug_data.get_addr_for_line(None, line) {
+                                target_addr = laddr;
+                            } else {
+                                println!("Invalid line number");
+                                continue;
+                            }
+                        } else if let Some(faddr) =
+                            self.debug_data.get_addr_for_function(None, addr.as_str())
+                        {
+                            target_addr = faddr;
+                        } else {
+                            println!("Usage: b|break|breakpoint *address|line|func");
+                            continue;
+                        }
+
+                        if !self.breakpoints.contains_key(&target_addr) {
+                            println!(
+                                "Set breakpoint {} at {:#x}",
+                                self.breakpoints.len(),
+                                target_addr
+                            );
+                        }
+
+                        if self.inferior.is_none() {
+                            self.breakpoints.insert(target_addr, 0);
+                        } else {
+                            if let Some(orig_byte) = self
+                                .inferior
+                                .as_mut()
+                                .unwrap()
+                                .write_byte(target_addr, 0xcc)
+                                .ok()
+                            {
+                                self.breakpoints.insert(target_addr, orig_byte);
+                            } else {
+                                println!("Invalid breakpoint address {:#x}", target_addr);
+                            }
+                        }
                     }
                 }
                 DebuggerCommand::Backtrace => {
