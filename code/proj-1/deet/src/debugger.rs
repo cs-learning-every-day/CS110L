@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::debugger_command::DebuggerCommand;
 use crate::dwarf_data::{DwarfData, Error as DwarfError};
 use crate::inferior::{Inferior, Status};
@@ -12,7 +14,7 @@ pub struct Debugger {
     readline: Editor<()>,
     inferior: Option<Inferior>,
     debug_data: DwarfData,
-    breakpoints: Vec<usize>,
+    breakpoints: HashMap<usize, u8>,
 }
 fn parse_address(addr: &str) -> Option<usize> {
     let addr_without_0x = if addr.to_lowercase().starts_with("0x") {
@@ -48,7 +50,7 @@ impl Debugger {
             readline,
             inferior: None,
             debug_data,
-            breakpoints: vec![],
+            breakpoints: HashMap::new(),
         }
     }
 
@@ -60,7 +62,9 @@ impl Debugger {
                         self.inferior.as_mut().unwrap().kill();
                         self.inferior = None;
                     }
-                    if let Some(inferior) = Inferior::new(&self.target, &args) {
+                    if let Some(inferior) =
+                        Inferior::new(&self.target, &args, &mut self.breakpoints)
+                    {
                         // Create the inferior
                         self.inferior = Some(inferior);
                         // You may use self.inferior.as_mut().unwrap() to get a mutable reference
@@ -91,7 +95,18 @@ impl Debugger {
                 }
                 DebuggerCommand::Breakpoint(addr) => {
                     println!("Set breakpoint {} at {}", self.breakpoints.len(), addr);
-                    self.breakpoints.push(parse_address(addr.as_str()).unwrap());
+                    let addr = parse_address(addr.as_str()).unwrap();
+                    if self.inferior.is_none() {
+                        self.breakpoints.insert(addr, 0);
+                    } else {
+                        let orig_byte = self
+                            .inferior
+                            .as_mut()
+                            .unwrap()
+                            .write_byte(addr, 0xcc)
+                            .unwrap();
+                        self.breakpoints.insert(addr, orig_byte);
+                    }
                 }
                 DebuggerCommand::Backtrace => {
                     if self.inferior.is_none() {

@@ -1,13 +1,17 @@
 use nix::sys::ptrace;
 use nix::sys::signal;
+use nix::sys::signal::Signal;
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::Pid;
+use std::collections::HashMap;
+use std::hash::Hash;
 use std::mem::size_of;
 use std::os::unix::process::CommandExt;
 use std::process::Child;
 use std::process::Command;
 use std::ptr::write_bytes;
 
+use crate::debugger::Debugger;
 use crate::dwarf_data::DwarfData;
 
 pub enum Status {
@@ -36,7 +40,6 @@ fn align_addr_to_word(addr: usize) -> usize {
     addr & (-(size_of::<usize>() as isize) as usize)
 }
 
-const HALT_VAL: u8 = 0xcc;
 pub struct Inferior {
     child: Child,
 }
@@ -44,20 +47,46 @@ pub struct Inferior {
 impl Inferior {
     /// Attempts to start a new inferior process. Returns Some(Inferior) if successful, or None if
     /// an error is encountered.
-    pub fn new(target: &str, args: &Vec<String>) -> Option<Inferior> {
+    pub fn new(
+        target: &str,
+        args: &Vec<String>,
+        breakpoints: &mut HashMap<usize, u8>,
+    ) -> Option<Inferior> {
         let mut cmd = Command::new(target);
         unsafe {
             cmd.pre_exec(child_traceme);
         }
         let child = cmd.args(args).spawn().ok()?;
-        Some(Inferior { child })
+        let bp = breakpoints.clone();
+        let mut inferior = Inferior { child };
+        for k in bp.keys() {
+            match inferior.write_byte(*k, 0xcc) {
+                Ok(orig_byte) => {
+                    breakpoints.insert(*k, orig_byte);
+                }
+                Err(_) => println!("Invalid breakpoint address {:#x}", *k),
+            }
+        }
+        Some(inferior)
     }
 
-    pub fn continue_run(&mut self, breakpoints: &Vec<usize>) -> Result<Status, nix::Error> {
-        for addr in breakpoints.iter() {
-            self.write_byte(addr.clone(), HALT_VAL).unwrap();
+    pub fn continue_run(&mut self, breakpoints: &HashMap<usize, u8>) -> Result<Status, nix::Error> {
+        let mut regs = ptrace::getregs(self.pid()).unwrap();
+        let rip_addr = regs.rip as usize;
+        if let Some(orig_byte) = breakpoints.get(&(rip_addr - 1)) {
+            self.write_byte(rip_addr - 1, *orig_byte).unwrap();
+            regs.rip = (rip_addr - 1) as u64;
+            ptrace::setregs(self.pid(), regs).unwrap();
+            ptrace::step(self.pid(), None).unwrap();
+            match self.wait(None).unwrap() {
+                Status::Signaled(sig) => return Ok(Status::Signaled(sig)),
+                Status::Exited(exit_code) => return Ok(Status::Exited(exit_code)),
+                Status::Stopped(_sig, _rip) => {
+                    self.write_byte(rip_addr - 1, 0xcc).unwrap();
+                }
+            }
         }
-        // resume execute 
+        // resume execute
         ptrace::cont(self.pid(), None)?;
         self.wait(None)
     }
@@ -93,7 +122,7 @@ impl Inferior {
         nix::unistd::Pid::from_raw(self.child.id() as i32)
     }
 
-    fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
+    pub fn write_byte(&mut self, addr: usize, val: u8) -> Result<u8, nix::Error> {
         let aligned_addr = align_addr_to_word(addr);
         let byte_offset = addr - aligned_addr;
         let word = ptrace::read(self.pid(), aligned_addr as ptrace::AddressType)? as u64;
