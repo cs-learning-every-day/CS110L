@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
 #[allow(unused_imports)]
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use std::{collections::VecDeque, vec};
 #[allow(unused_imports)]
 use std::{env, process, thread};
 
@@ -72,11 +72,30 @@ fn main() {
     let start = Instant::now();
 
     // TODO: call get_input_numbers() and store a queue of numbers to factor
+    let numbers = Arc::new(Mutex::new(get_input_numbers()));
+    let mut handles = vec![];
 
     // TODO: spawn `num_threads` threads, each of which pops numbers off the queue and calls
     // factor_number() until the queue is empty
+    for _ in 0..num_threads {
+        let numbers = Arc::clone(&numbers);
+        let handle = thread::spawn(move || loop {
+            let number = {
+                let mut numbers = numbers.lock().unwrap();
+                numbers.pop_front()
+            };
+            match number {
+                Some(num) => factor_number(num),
+                None => break,
+            }
+        });
+        handles.push(handle);
+    }
 
     // TODO: join all the threads you created
+    for handle in handles {
+        handle.join().unwrap();
+    }
 
     println!("Total execution time: {:?}", start.elapsed());
 }
