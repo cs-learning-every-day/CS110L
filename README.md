@@ -7,5 +7,5 @@
 - [X] Project 1: The DEET Debugger
 - [X] Week 4 Exercises: Checking in
 - [X] Week 5 Exercises: Farm meets multithreading
-- [ ] Week 6 Exercises: Sharing Data by Communicating
+- [X] Week 6 Exercises: Sharing Data by Communicating
 - [ ] Project 2: Balancebeam
