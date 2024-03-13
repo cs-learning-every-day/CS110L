@@ -8,4 +8,4 @@
 - [X] Week 4 Exercises: Checking in
 - [X] Week 5 Exercises: Farm meets multithreading
 - [X] Week 6 Exercises: Sharing Data by Communicating
-- [ ] Project 2: Balancebeam
+- [X] Project 2: Balancebeam

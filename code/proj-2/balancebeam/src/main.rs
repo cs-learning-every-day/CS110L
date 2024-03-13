@@ -1,6 +1,7 @@
 mod request;
 mod response;
 
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::Error;
 use std::io::ErrorKind;
@@ -11,6 +12,7 @@ use clap::Parser;
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::Mutex;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
@@ -71,6 +73,8 @@ struct ProxyState {
     upstream_addresses: Vec<String>,
     // Alive of upstream
     alive_upstreams: Arc<RwLock<HashSet<String>>>,
+    // Rate limit
+    rate_limit_map: Arc<Mutex<HashMap<String, u32>>>,
 }
 
 #[tokio::main]
@@ -108,12 +112,17 @@ async fn main() {
         active_health_check_path: options.active_health_check_path,
         max_requests_per_minute: options.max_requests_per_minute,
         alive_upstreams: Arc::new(RwLock::new(hashd_upstreams)),
+        rate_limit_map: Arc::new(Mutex::new(HashMap::new())),
     };
 
-    // let state = state.clone();
     let tmp_state = state.clone();
     tokio::spawn(async move {
         health_check(&tmp_state).await;
+    });
+
+    let tmp_state = state.clone();
+    tokio::spawn(async move {
+        ramte_limit_map_clear(&tmp_state).await;
     });
 
     loop {
@@ -124,6 +133,14 @@ async fn main() {
                 handle_connection(stream, &state).await;
             });
         }
+    }
+}
+
+async fn ramte_limit_map_clear(state: &ProxyState) {
+    loop {
+        sleep(Duration::from_secs(60)).await;
+        let mut rate_limit_map = state.rate_limit_map.clone().lock_owned().await;
+        rate_limit_map.clear();
     }
 }
 
@@ -277,6 +294,23 @@ async fn handle_connection(mut client_conn: TcpStream, state: &ProxyState) {
             upstream_ip,
             request::format_request_line(&request)
         );
+
+        if state.max_requests_per_minute > 0 {
+            {
+                let mut rate_limit_map = state.rate_limit_map.clone().lock_owned().await;
+                let cnt = rate_limit_map.entry(client_ip.to_string()).or_insert(0);
+                *cnt += 1;
+
+                if *cnt > state.max_requests_per_minute.try_into().unwrap() {
+                    let response = response::make_http_error(http::StatusCode::TOO_MANY_REQUESTS);
+                    if let Err(error) = response::write_to_stream(&response, &mut client_conn).await
+                    {
+                        log::error!("failed to send response to client: {:?}", error);
+                    }
+                    continue;
+                }
+            }
+        }
 
         // Add X-Forwarded-For header so that the upstream server knows the client's IP address.
         // (We're the ones connecting directly to the upstream server, so without this header, the
