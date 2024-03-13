@@ -104,7 +104,7 @@ fn main() {
 
 fn connect_to_upstream(state: &ProxyState) -> Result<TcpStream, std::io::Error> {
     let mut rng = rand::rngs::StdRng::from_entropy();
-    let upstream_idx = rng.gen_range(0, state.upstream_addresses.len());
+    let upstream_idx = rng.gen_range(0..state.upstream_addresses.len());
     let upstream_ip = &state.upstream_addresses[upstream_idx];
     TcpStream::connect(upstream_ip).or_else(|err| {
         log::error!("Failed to connect to upstream {}: {}", upstream_ip, err);
