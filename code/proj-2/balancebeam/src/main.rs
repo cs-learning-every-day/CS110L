@@ -5,12 +5,14 @@ use std::collections::HashSet;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use rand::seq::IteratorRandom;
 use rand::SeedableRng;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::RwLock;
+use tokio::time::sleep;
 
 /// Contains information parsed from the command-line invocation of balancebeam. The Clap macros
 /// provide a fancy way to automatically construct a command-line argument parser.
@@ -108,6 +110,12 @@ async fn main() {
         alive_upstreams: Arc::new(RwLock::new(hashd_upstreams)),
     };
 
+    // let state = state.clone();
+    let tmp_state = state.clone();
+    tokio::spawn(async move {
+        health_check(&tmp_state).await;
+    });
+
     loop {
         if let Ok((stream, _)) = listener.accept().await {
             let state = state.clone();
@@ -115,6 +123,63 @@ async fn main() {
             tokio::spawn(async move {
                 handle_connection(stream, &state).await;
             });
+        }
+    }
+}
+
+async fn health_check(state: &ProxyState) {
+    loop {
+        sleep(Duration::from_secs(
+            state.active_health_check_interval.try_into().unwrap(),
+        ))
+        .await;
+
+        let mut alive_upstreams = state.alive_upstreams.write().await;
+        alive_upstreams.clear();
+
+        for upstream_ip in &state.upstream_addresses {
+            let req = http::Request::builder()
+                .method(http::Method::GET)
+                .uri(&state.active_health_check_path)
+                .header("Host", upstream_ip)
+                .body(Vec::new())
+                .unwrap();
+
+            match TcpStream::connect(upstream_ip).await {
+                Ok(mut stream) => {
+                    if let Err(err) = request::write_to_stream(&req, &mut stream).await {
+                        log::error!(
+                            "Failed to send request to upstream {}: {}",
+                            upstream_ip,
+                            err
+                        );
+                        continue;
+                    }
+
+                    match response::read_from_stream(&mut stream, &req.method()).await {
+                        Ok(response) => match response.status().as_u16() {
+                            200 => {
+                                alive_upstreams.insert(upstream_ip.to_string());
+                            }
+                            status @ _ => {
+                                log::error!(
+                                    "health check upstream server: {} : {}",
+                                    upstream_ip,
+                                    status
+                                );
+                            }
+                        },
+                        Err(error) => {
+                            log::error!("Error read from stream {:?}", error);
+                            continue;
+                        }
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to connect to upstream {}: {}", upstream_ip, err);
+                    continue;
+                }
+            }
         }
     }
 }
